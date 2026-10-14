@@ -1,4 +1,6 @@
 # Glass Player
+<img width="373" height="151" alt="Screenshot1" src="https://github.com/user-attachments/assets/b3b6091d-9453-4f9f-b58d-0f42bf32caf4" />
+<img width="324" height="142" alt="Screenshot2" src="https://github.com/user-attachments/assets/d0673861-48b2-4732-abd2-98a579bc0294" />
 
 A Spotify now-playing widget for your Mac desktop, made of Liquid Glass.
 
@@ -11,6 +13,7 @@ A Spotify now-playing widget for your Mac desktop, made of Liquid Glass.
 - **＋ button, like Spotify's**: saves the song to Liked Songs (it morphs into a green check), then lets you choose playlists instead (or as well).
 - **Click the album art** to open Spotify.
 - **Right-click it** for: Open Spotify, Copy Song Link, Add to Playlist, Glass (style and translucency), Dim When Using Other Apps, Lock Position, Open at Login, Hide, Quit.
+<img width="709" height="452" alt="Screenshot3" src="https://github.com/user-attachments/assets/dfd96a60-1638-4728-b912-549ffa9d59ab" />
 
 ## Install
 
