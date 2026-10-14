@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Glass Player is signed with the Hardened Runtime, which blocks code injection
+	(DYLD_* variables, unsigned libraries, debugger attach). This is its only exception:
+	permission to send Apple Events, which it uses to control Spotify. macOS still asks
+	you before it may control Spotify, and it can't control any other app without asking.
+	-->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>

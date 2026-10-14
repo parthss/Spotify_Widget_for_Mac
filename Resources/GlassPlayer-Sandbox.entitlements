@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Optional, stricter build (run build.sh with the sandbox option, see SECURITY.md).
+	App Sandbox confines Glass Player to its own container. It can't read your files, and
+	it can only do the things listed below.
+	-->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- HTTPS to Spotify (sign-in, API, cover images). -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- The temporary sign-in listener on 127.0.0.1. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<!-- Apple Events, needed by the Hardened Runtime... -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+	<!-- ...and only to Spotify. macOS still asks you first. -->
+	<key>com.apple.security.temporary-exception.apple-events</key>
+	<array>
+		<string>com.spotify.client</string>
+	</array>
+</dict>
+</plist>

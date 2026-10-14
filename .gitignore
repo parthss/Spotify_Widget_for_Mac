@@ -1,0 +1,11 @@
+# Build output (build.sh)
+.build/
+
+# macOS
+.DS_Store
+
+# Xcode, if you open the sources there
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+.swiftpm/
