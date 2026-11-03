@@ -2,7 +2,7 @@
 <img width="373" height="151" alt="Screenshot1" src="https://github.com/user-attachments/assets/b3b6091d-9453-4f9f-b58d-0f42bf32caf4" />
 <img width="324" height="142" alt="Screenshot2" src="https://github.com/user-attachments/assets/d0673861-48b2-4732-abd2-98a579bc0294" />
 
-A Spotify now-playing widget for your Mac desktop, made of Liquid Glass.
+A Spotify now-playing widget for your Mac desktop, made of Liquid Glass. It also works with other players that show up in Control Center's Now Playing, such as [Mornye](https://desktop.mornye.com).
 
 - **Lives on the desktop layer**, like Apple's widgets: behind your app windows, above the wallpaper, on every Space. It stays put during Mission Control and Show Desktop, never steals focus, and has no Dock icon.
 - **Liquid Glass** on macOS 26 and later (a frosted blur on macOS 14–15).
@@ -17,7 +17,7 @@ A Spotify now-playing widget for your Mac desktop, made of Liquid Glass.
 
 ## Install
 
-You need macOS 14 or later, the Spotify desktop app, and Apple's Command Line Tools (or Xcode). For Liquid Glass you need macOS 26+ and Command Line Tools / Xcode 26+.
+You need macOS 14 or later, the Spotify desktop app (or another player such as Mornye), and Apple's Command Line Tools (or Xcode). For Liquid Glass you need macOS 26+ and Command Line Tools / Xcode 26+.
 
 ```bash
 xcode-select --install      # skip if you already have Xcode or the Command Line Tools
@@ -33,6 +33,19 @@ The script compiles the app, signs it for your Mac, installs it as `~/Applicatio
 The first time it talks to Spotify, macOS asks whether **Glass Player** may control **Spotify**. Click **Allow**. If you clicked Don't Allow, the widget says so; its gear button opens **System Settings › Privacy & Security › Automation**, where you can switch it on.
 
 To keep the widget after a restart, turn on **Open at Login** from its menu.
+
+## Other players (Mornye and more)
+
+The widget follows macOS's Now Playing, like Control Center does. When another app is the one playing (Mornye, Apple Music, a browser, or anything else that appears in Control Center's media panel) the widget shows its song, artist, artwork and progress, and its buttons control that app. When Spotify plays again, the widget goes back to Spotify.
+
+With other players:
+
+- **Play/pause, next, previous and seeking** work if the player supports them in Control Center.
+- **Shuffle and repeat** are available only if the player reports them; otherwise they're greyed out.
+- **Volume, the ＋ button and sharing** are Spotify-only, so they're greyed out (and Copy Song Link is hidden).
+- **Click the album art** to open the player. Right-click › **Open Mornye** (or the player's name) does the same.
+
+There's nothing to set up and no permission prompt. It needs the normal build: `./build.sh --sandbox` leaves this out and stays Spotify-only. See [SECURITY.md](SECURITY.md#now-playing-adapter) for how it works.
 
 ## Glass
 
@@ -102,7 +115,7 @@ For a stricter build, `./build.sh --sandbox` also turns on App Sandbox.
 
 ## How it works
 
-Playback goes through the Spotify desktop app directly, using macOS scripting: no login needed for that part. Spotify broadcasts a notification whenever the song or play state changes, and the widget also checks every 2 seconds to catch shuffle, repeat, volume and seeking done in the Spotify window.
+Playback goes through the Spotify desktop app directly, using macOS scripting: no login needed for that part. Other players go through macOS's Now Playing, using the open-source [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) (included in `Vendor/`), which runs inside Apple's own `/usr/bin/perl` because since macOS 15.4 only Apple-signed programs may read Now Playing. Spotify broadcasts a notification whenever the song or play state changes, and the widget also checks every 2 seconds to catch shuffle, repeat, volume and seeking done in the Spotify window.
 
 Liked Songs and playlists go through the Spotify Web API (sign-in with PKCE, so no client secret is stored). The picker checks which of your playlists already contain the song as you scroll, and remembers it until a playlist changes, so it never adds a song twice.
 
@@ -115,7 +128,8 @@ The window is a borderless panel placed just above the desktop-icon layer, set t
 - **The ＋ button needs Spotify Premium** and the one-time setup above.
 - **Very long playlists** (over 5,000 songs) aren't checked for the current song, so their tick starts empty.
 - **Repeat is on/off.** Scripting can't select repeat-one.
-- **Only the Spotify app on this Mac.** When you play to another device over Spotify Connect, Spotify sometimes stops reporting song details to scripts; the widget then shows "Spotify is playing".
+- **Other players depend on what they report to Now Playing.** If a player doesn't appear in Control Center's media panel, the widget can't see it. The Now Playing route uses a private Apple framework, so a macOS update could break it; the widget then falls back to Spotify only.
+- **Only players on this Mac.** When you play to another device over Spotify Connect, Spotify sometimes stops reporting song details to scripts; the widget then shows "Spotify is playing".
 - After you rebuild, macOS may ask for the Spotify and keychain permissions again, because the app's signature changed.
 
 ## Customising
@@ -130,6 +144,7 @@ The window is a borderless panel placed just above the desktop-icon layer, set t
 Right-click › Disconnect Spotify Account, revoke access at [spotify.com/account/apps](https://www.spotify.com/account/apps/), then right-click › Quit Glass Player (turn off Open at Login first if you enabled it), then:
 
 ```bash
+pkill -f "Glass Player.app/Contents/Resources/mediaremote-adapter.pl"
 rm -rf ~/Applications/"Glass Player.app"
 defaults delete local.glassplayer
 tccutil reset AppleEvents local.glassplayer

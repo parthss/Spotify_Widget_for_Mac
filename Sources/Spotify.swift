@@ -22,6 +22,10 @@ struct NowPlaying {
     var volume = 50             // 0...100
     var shuffling = false
     var repeating = false
+    /// Players other than Spotify may not report or accept these; their buttons are disabled.
+    var supportsVolume = true
+    var supportsShuffle = true
+    var supportsRepeat = true
 
     var hasTrack: Bool { !title.isEmpty }
     var isPlaying: Bool { state == .playing }
@@ -249,12 +253,46 @@ final class AppleScriptRunner: @unchecked Sendable {
     }
 }
 
+extension NowPlaying {
+    /// The widget's state for a player other than Spotify, from macOS's Now Playing.
+    init(system track: SystemTrack) {
+        self.init()
+        isRunning = true
+        state = track.isPlaying ? .playing : .paused
+        title = track.title
+        artist = track.artist
+        album = track.album
+        duration = track.duration
+        position = track.elapsed
+        positionDate = track.timestamp
+        supportsVolume = false
+        supportsShuffle = track.shuffleMode != nil
+        supportsRepeat = track.repeatMode != nil
+        shuffling = (track.shuffleMode ?? 1) != 1
+        repeating = (track.repeatMode ?? 1) != 1
+        // Stays empty: the + button and share links only work for Spotify songs.
+        trackID = ""
+    }
+}
+
+/// Which app the widget is showing.
+enum PlayerSource: Equatable {
+    /// Spotify, through AppleScript (also when nothing at all is playing).
+    case spotify
+    /// Any other app that reports to macOS's Now Playing, such as Mornye.
+    case other(bundleID: String, name: String)
+}
+
 // MARK: - Controller
 
-/// Keeps `now` in sync with the Spotify app and sends it commands.
+/// Keeps `now` in sync with the player and sends it commands.
 ///
-/// Updates arrive two ways: Spotify broadcasts a notification whenever the song or the
-/// play state changes (instant), and a light poll every 2 s catches everything else
+/// The widget follows macOS's Now Playing, like Control Center: when another app (such as
+/// Mornye) is the one playing, it shows and controls that app through `SystemNowPlaying`.
+/// Otherwise it talks to Spotify through AppleScript, as before.
+///
+/// Spotify updates arrive two ways: Spotify broadcasts a notification whenever the song or
+/// the play state changes (instant), and a light poll every 2 s catches everything else
 /// (shuffle, repeat, volume, seeking from the Spotify window).
 @MainActor
 final class SpotifyController: ObservableObject {
@@ -262,6 +300,10 @@ final class SpotifyController: ObservableObject {
     @Published private(set) var artwork: NSImage?
     @Published private(set) var artworkColor: Color?
     @Published private(set) var needsPermission = false
+    @Published private(set) var source: PlayerSource = .spotify
+
+    private let system = SystemNowPlaying()
+    private var systemArtwork: Data?
 
     private enum Field: Hashable {
         case state, position, volume, shuffle, repeating
@@ -279,6 +321,9 @@ final class SpotifyController: ObservableObject {
     private var holdUntil: [Field: Date] = [:]
 
     func start() {
+        system.onChange = { [weak self] track in self?.systemChanged(track) }
+        system.start()
+
         observers.append(DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.spotify.client.PlaybackStateChanged"),
             object: nil, queue: .main
@@ -315,6 +360,7 @@ final class SpotifyController: ObservableObject {
     }
 
     func refresh() {
+        guard source == .spotify else { return } // other players push their changes
         guard SpotifyApp.isRunning else {
             if now.isRunning { now = NowPlaying() }
             setArtwork(nil)
@@ -329,7 +375,7 @@ final class SpotifyController: ObservableObject {
         Task {
             let result = await AppleScriptRunner.shared.run(SpotifyScript.status)
             self.isRefreshing = false
-            self.apply(result)
+            if self.source == .spotify { self.apply(result) }
             if self.refreshQueued {
                 self.refreshQueued = false
                 self.refresh()
@@ -347,22 +393,41 @@ final class SpotifyController: ObservableObject {
         updated.positionDate = date
         updated.state = now.isPlaying ? .paused : .playing
         now = updated
-        send(SpotifyScript.playPause)
+        if source == .spotify {
+            send(SpotifyScript.playPause)
+        } else {
+            system.send(.togglePlayPause)
+        }
     }
 
-    func nextTrack() { send(SpotifyScript.nextTrack) }
-    func previousTrack() { send(SpotifyScript.previousTrack) }
+    func nextTrack() {
+        if source == .spotify { send(SpotifyScript.nextTrack) } else { system.send(.nextTrack) }
+    }
+
+    func previousTrack() {
+        if source == .spotify { send(SpotifyScript.previousTrack) } else { system.send(.previousTrack) }
+    }
 
     func toggleShuffle() {
+        guard now.supportsShuffle else { return }
         hold(.shuffle)
         now.shuffling.toggle()
-        send(SpotifyScript.toggleShuffle)
+        if source == .spotify {
+            send(SpotifyScript.toggleShuffle)
+        } else {
+            system.setShuffle(now.shuffling)
+        }
     }
 
     func toggleRepeat() {
+        guard now.supportsRepeat else { return }
         hold(.repeating)
         now.repeating.toggle()
-        send(SpotifyScript.toggleRepeat)
+        if source == .spotify {
+            send(SpotifyScript.toggleRepeat)
+        } else {
+            system.setRepeat(now.repeating)
+        }
     }
 
     func seek(toFraction fraction: Double) {
@@ -371,11 +436,16 @@ final class SpotifyController: ObservableObject {
         hold(.position)
         now.position = seconds
         now.positionDate = Date()
-        send(SpotifyScript.seek(to: seconds), cache: false)
+        if source == .spotify {
+            send(SpotifyScript.seek(to: seconds), cache: false)
+        } else {
+            system.seek(to: seconds)
+        }
     }
 
     /// Called continuously while you drag the volume slider; only the latest value is sent.
     func setVolume(_ value: Int, immediately: Bool = false) {
+        guard source == .spotify else { return }
         let volume = min(max(value, 0), 100)
         hold(.volume)
         now.volume = volume
@@ -399,6 +469,26 @@ final class SpotifyController: ObservableObject {
             if result.isPermissionError { self.needsPermission = true }
             self.refresh()
         }
+    }
+
+    /// The name to show for the current player, e.g. "Spotify" or "Mornye".
+    var playerName: String {
+        switch source {
+        case .spotify: return "Spotify"
+        case .other(_, let name): return name
+        }
+    }
+
+    /// Brings the current player to the front (clicking the album art).
+    func openPlayer() {
+        guard case .other(let bundleID, _) = source,
+              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            openSpotify()
+            return
+        }
+        NSWorkspace.shared.openApplication(at: url,
+                                           configuration: NSWorkspace.OpenConfiguration(),
+                                           completionHandler: nil)
     }
 
     func openSpotify() {
@@ -430,6 +520,87 @@ final class SpotifyController: ObservableObject {
         }
     }
 
+    /// Called by `SystemNowPlaying` whenever macOS's Now Playing changes.
+    private func systemChanged(_ track: SystemTrack?) {
+        guard let track, !Self.isSpotify(track) else {
+            // Spotify (or nobody) is the Now Playing app: back to AppleScript.
+            guard source != .spotify else { return }
+            source = .spotify
+            holdUntil = [:]
+            now = NowPlaying()
+            clearArtwork()
+            refresh()
+            return
+        }
+
+        let bundleID = track.appBundleID
+        if otherBundleID != bundleID {
+            // A different player took over: start from a clean slate.
+            source = .other(bundleID: bundleID, name: Self.appName(bundleID))
+            needsPermission = false
+            volumeTask?.cancel()
+            holdUntil = [:]
+            now = NowPlaying()
+            clearArtwork()
+        }
+        now = merged(NowPlaying(system: track))
+        setSystemArtwork(track.artworkData)
+    }
+
+    private var otherBundleID: String? {
+        if case .other(let bundleID, _) = source { return bundleID }
+        return nil
+    }
+
+    private static func isSpotify(_ track: SystemTrack) -> Bool {
+        track.bundleID == SpotifyApp.bundleID || track.parentBundleID == SpotifyApp.bundleID
+    }
+
+    private static func appName(_ bundleID: String) -> String {
+        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first,
+           let name = app.localizedName, !name.isEmpty {
+            return String(name.prefix(60))
+        }
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            return String(url.deletingPathExtension().lastPathComponent.prefix(60))
+        }
+        return "Your player"
+    }
+
+    private func clearArtwork() {
+        artworkTask?.cancel()
+        artworkURL = nil
+        systemArtwork = nil
+        artwork = nil
+        artworkColor = nil
+    }
+
+    private func setSystemArtwork(_ data: Data?) {
+        guard data != systemArtwork else { return }
+        systemArtwork = data
+        artworkURL = nil
+        artworkTask?.cancel()
+        guard let data else {
+            artwork = nil
+            artworkColor = nil
+            return
+        }
+        artworkTask = Task {
+            let cgImage = await Task.detached(priority: .userInitiated) {
+                SafeImageLoader.decode(data, maxPixelSize: 640)
+            }.value
+            guard !Task.isCancelled, self.systemArtwork == data else { return }
+            if let cgImage {
+                self.artwork = NSImage(cgImage: cgImage,
+                                       size: NSSize(width: cgImage.width, height: cgImage.height))
+                self.artworkColor = ArtworkColor.from(cgImage).map { Color(nsColor: $0) }
+            } else {
+                self.artwork = nil
+                self.artworkColor = nil
+            }
+        }
+    }
+
     private func apply(_ result: ScriptResult) {
         guard case .success(let fields) = result else {
             if result.isPermissionError { needsPermission = true }
@@ -441,21 +612,26 @@ final class SpotifyController: ObservableObject {
             setArtwork(nil)
             return
         }
-        guard var fresh = NowPlaying(fields: fields) else { return }
+        guard let fresh = NowPlaying(fields: fields) else { return }
+        now = merged(fresh)
+        setArtwork(fresh.artworkURL)
+    }
 
+    /// A status read, except for anything you changed in the last moment.
+    private func merged(_ incoming: NowPlaying) -> NowPlaying {
+        var fresh = incoming
         let current = now
         let date = Date()
+        let sameTrack = fresh.trackID == current.trackID && fresh.title == current.title
         if isHeld(.state, date) { fresh.state = current.state }
-        if isHeld(.position, date), fresh.trackID == current.trackID {
+        if isHeld(.position, date), sameTrack {
             fresh.position = current.playhead(at: date)
             fresh.positionDate = date
         }
         if isHeld(.volume, date) { fresh.volume = current.volume }
         if isHeld(.shuffle, date) { fresh.shuffling = current.shuffling }
         if isHeld(.repeating, date) { fresh.repeating = current.repeating }
-
-        now = fresh
-        setArtwork(fresh.artworkURL)
+        return fresh
     }
 
     private func hold(_ fields: Field...) {

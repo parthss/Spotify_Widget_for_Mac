@@ -1,12 +1,13 @@
 # Glass Player security
 
-Glass Player is about 3,900 lines of Swift that you compile yourself from this folder. The build uses only Apple's own tools: no third-party code, nothing downloaded, no `sudo`. The app has no telemetry. It talks to two things only: the Spotify app on your Mac and Spotify's servers.
+Glass Player is about 4,300 lines of Swift that you compile yourself from this folder. The build uses only Apple's own tools: nothing downloaded, no `sudo`. The only third-party code is the Now Playing adapter in `Vendor/mediaremote-adapter` (about 2,600 lines of Objective-C and Perl, BSD licence, included unmodified at a pinned version; see its README). The app has no telemetry. It talks to the Spotify app on your Mac, Spotify's servers, and macOS's Now Playing.
 
 ## What it can access
 
 | Access | Why | Who grants it |
 | --- | --- | --- |
 | Control the Spotify app (Apple Events) | Read what's playing; play, pause, skip, shuffle, repeat, volume | You, when macOS asks the first time. Revoke in System Settings › Privacy & Security › Automation. |
+| macOS Now Playing | Show and control other players, such as Mornye: song details, artwork, play, pause, skip, seek, shuffle, repeat | No prompt: any app that shows up in Control Center's Now Playing. Left out of `--sandbox` builds. |
 | Your Liked Songs and playlists | The ＋ button | You, on Spotify's consent page, and only if you connect. |
 | One keychain item, "Glass Player – Spotify sign-in" | Staying connected | Created when you connect; removed when you disconnect. |
 | Open at Login | Optional | Only if you switch it on. |
@@ -45,23 +46,33 @@ The browser is opened only after the listener actually holds that port. If anoth
 - **Disconnect** (right-click the widget) removes the token from this Mac. To revoke access on Spotify's side as well, go to [spotify.com/account/apps](https://www.spotify.com/account/apps/) and click **Remove access** next to your app. You can also delete the app in the Spotify Developer Dashboard.
 - **Expiry**: Spotify ends the sign-in on its own after about six months.
 
+## Now Playing adapter
+
+Since macOS 15.4, only Apple-signed programs may read Now Playing. So, like other Mac now-playing tools, Glass Player runs Apple's own `/usr/bin/perl` as a child process, which loads the adapter framework from inside the app and prints one line of JSON per change. Commands (play/pause, next, previous, seek, shuffle, repeat) start a short-lived process the same way.
+
+- The adapter is compiled from the source in `Vendor/mediaremote-adapter` by `build.sh` and signed with the app; the Perl script is sealed into the app's signature.
+- The child gets fixed arguments and a clean environment (no `PERL5OPT`/`PERL5LIB`), no shell is involved, and its error output is discarded.
+- It uses Apple's private MediaRemote framework. A future macOS update may stop it working; the widget then simply goes back to Spotify-only, retrying in the background with an increasing delay.
+- It can see what any app reports to Now Playing (the same details Control Center shows), and send it the media commands above. It can't control anything else.
+
 ## Untrusted input
 
-- **AppleScript**: the scripts are fixed text, and only clamped numbers are ever inserted. The app never runs shell commands.
+- **AppleScript**: the scripts are fixed text, and only clamped numbers are ever inserted. The app never runs shell commands; the only program it starts is `/usr/bin/perl` for the Now Playing adapter, with fixed arguments and numbers.
+- **What other players report** through Now Playing is length-limited and range-checked the same way. Lines over 16 MB are dropped, artwork over 8 MB is ignored, and artwork goes through the same image checks below (allowed formats, decoded to a small thumbnail).
 - **What Spotify reports** (which can include a local file's tags) is read as a list, length-limited and range-checked. Song and playlist IDs must be plain base-62 before they go into an API path or a link.
 - **Images** are only downloaded:
   - over HTTPS, from Spotify's image servers (checked again after any redirect);
   - up to 8 MB, counted while downloading;
   - in common bitmap formats (JPEG, PNG, WebP, HEIC, GIF);
   - and are decoded straight to a small thumbnail.
-- **Opened URLs**: the app only opens fixed addresses: Spotify's sign-in page, the Developer Dashboard, Spotify's download page and the Automation settings.
+- **Opened URLs**: the app only opens fixed addresses: Spotify's sign-in page, the Developer Dashboard, Spotify's download page and the Automation settings. Clicking the album art of another player opens that player's app, looked up by its bundle ID.
 - **Settings** (glass style, translucency, position) are checked when read, so a hand-edited value can't break the widget.
 
 ## Hardening
 
 - **Hardened Runtime** blocks code injection: `DYLD_*` variables, unsigned libraries, debugger attach. Its only exception is permission to send Apple Events.
 - **No URL schemes and no App Transport Security exceptions.**
-- **Optional App Sandbox**: `./build.sh --sandbox` confines the app to its own container. It can then reach only the network, the loopback listener, and Apple Events to Spotify; it can't read your files. I couldn't test this build on a Mac. If Spotify control stops working with it, rebuild without `--sandbox`.
+- **Optional App Sandbox**: `./build.sh --sandbox` confines the app to its own container. It can then reach only the network, the loopback listener, and Apple Events to Spotify; it can't read your files. This build leaves out the Now Playing adapter, so it works with Spotify only. I couldn't test this build on a Mac. If Spotify control stops working with it, rebuild without `--sandbox`.
 
 ## Check it yourself on your Mac
 

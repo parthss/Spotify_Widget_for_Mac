@@ -61,7 +61,7 @@ struct WidgetView: View {
             header
             Spacer(minLength: 8)
             ZStack {
-                if showingVolume {
+                if showingVolume && spotify.now.supportsVolume {
                     volumeRow.transition(.opacity)
                 } else {
                     transportRow.transition(.opacity)
@@ -102,7 +102,7 @@ struct WidgetView: View {
     // MARK: State
 
     private var mode: Mode {
-        if spotify.needsPermission { return .needsPermission }
+        if spotify.source == .spotify, spotify.needsPermission { return .needsPermission }
         if !spotify.now.isRunning { return .notRunning }
         return spotify.now.hasTrack ? .track : .idle
     }
@@ -119,7 +119,7 @@ struct WidgetView: View {
         switch mode {
         case .needsPermission: return "Allow control of Spotify"
         case .notRunning: return "Spotify isn't open"
-        case .idle: return spotify.now.isPlaying ? "Spotify is playing" : "Nothing playing"
+        case .idle: return spotify.now.isPlaying ? "\(spotify.playerName) is playing" : "Nothing playing"
         case .track: return spotify.now.title
         }
     }
@@ -131,7 +131,7 @@ struct WidgetView: View {
         case .notRunning:
             return SpotifyApp.appURL == nil ? "Install Spotify to get started" : "Press play to start listening"
         case .idle:
-            return spotify.now.isPlaying ? "Song details aren't available" : "Pick something in Spotify"
+            return spotify.now.isPlaying ? "Song details aren't available" : "Pick something in \(spotify.playerName)"
         case .track:
             return spotify.now.artist
         }
@@ -151,16 +151,16 @@ struct WidgetView: View {
             } animation: { scale in
                 scale < 1 ? .snappy(duration: 0.12) : .bouncy(duration: 0.5, extraBounce: 0.15)
             }
-            // Clicking the cover opens Spotify. A tap (not a button) so you can still drag
-            // the widget by its cover.
+            // Clicking the cover opens the player (Spotify, Mornye...). A tap (not a button)
+            // so you can still drag the widget by its cover.
             .contentShape(RoundedRectangle(cornerRadius: Metrics.artworkCornerRadius, style: .continuous))
             .onTapGesture {
                 artworkClicks += 1
-                spotify.openSpotify()
+                spotify.openPlayer()
             }
-            .help("Open Spotify")
+            .help("Open \(spotify.playerName)")
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Open Spotify")
+            .accessibilityLabel("Open \(spotify.playerName)")
 
             VStack(alignment: .leading, spacing: 0) {
                 if mode != .track { Spacer(minLength: 0) }
@@ -260,12 +260,12 @@ struct WidgetView: View {
 
     private var transportRow: some View {
         let hasTrack = mode == .track
-        let canAdjustVolume = mode == .track || mode == .idle
+        let canAdjustVolume = (mode == .track || mode == .idle) && spotify.now.supportsVolume
         return HStack(spacing: 0) {
             control(volumeSymbol, variableValue: volumeLevel, label: "Volume", enabled: canAdjustVolume) {
                 withAnimation(.easeInOut(duration: 0.2)) { showingVolume = true }
             }
-            control("shuffle", label: "Shuffle", enabled: hasTrack, isOn: spotify.now.shuffling) {
+            control("shuffle", label: "Shuffle", enabled: hasTrack && spotify.now.supportsShuffle, isOn: spotify.now.shuffling) {
                 spotify.toggleShuffle()
             }
             control("backward.fill", size: 20, diameter: 38, label: "Previous", enabled: hasTrack,
@@ -278,7 +278,7 @@ struct WidgetView: View {
                     effect: .forward) {
                 spotify.nextTrack()
             }
-            control("repeat", label: "Repeat", enabled: hasTrack, isOn: spotify.now.repeating) {
+            control("repeat", label: "Repeat", enabled: hasTrack && spotify.now.supportsRepeat, isOn: spotify.now.repeating) {
                 spotify.toggleRepeat()
             }
             shareButton
@@ -405,6 +405,9 @@ struct WidgetView: View {
 
     @ViewBuilder
     private var optionsMenu: some View {
+        if spotify.source != .spotify {
+            Button("Open \(spotify.playerName)") { spotify.openPlayer() }
+        }
         Button("Open Spotify") { spotify.openSpotify() }
         if let url = spotify.now.shareURL {
             Button("Copy Song Link") {
