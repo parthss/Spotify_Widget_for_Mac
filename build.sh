@@ -70,6 +70,7 @@ if [ "$SANDBOX" = "no" ]; then
     -arch "$ARCH" -mmacosx-version-min="$MIN_MACOS" \
     -I "$ADAPTER_SRC/include" -I "$ADAPTER_SRC/src" \
     -framework Foundation -framework AppKit -framework UniformTypeIdentifiers \
+    -framework ImageIO -framework CoreServices \
     -install_name "@rpath/MediaRemoteAdapter.framework/Versions/A/MediaRemoteAdapter" \
     "$ADAPTER_SRC"/src/adapter/*.m "$ADAPTER_SRC"/src/private/*.m "$ADAPTER_SRC"/src/utility/*.m \
     -o "$FRAMEWORK/Versions/A/MediaRemoteAdapter"

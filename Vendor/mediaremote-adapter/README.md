@@ -9,8 +9,9 @@ panel in Control Center), so the widget also works with players that don't suppo
 AppleScript, such as Mornye. Since macOS 15.4 only Apple-signed programs may use the
 private MediaRemote framework, so the adapter is loaded into Apple's own `/usr/bin/perl`.
 
-Only the files needed to build the adapter framework are included (the test client
-and the project's build files are left out). The files are unmodified. `build.sh`
+Only the files needed to build the adapter framework are included. Left out: the test
+client, the `test` command (`src/adapter/test.m`, which needs the test client and isn't
+used by Glass Player) and the project's build files. The included files are unmodified. `build.sh`
 compiles them with Apple's `clang` into
 `Glass Player.app/Contents/Frameworks/MediaRemoteAdapter.framework`, and copies
 `bin/mediaremote-adapter.pl` into the app's Resources.
